@@ -7,6 +7,7 @@ from py_clob_client.client import ClobClient
 class PaperPortfolio:
     def __init__(self, initial_balance=1000.0):
         self.balance = initial_balance
+        self.initial_balance = initial_balance
         self.positions = {}
         print(f"--- Portfolio Initialized: ${self.balance} ---")
 
@@ -24,6 +25,27 @@ class PaperPortfolio:
         self.balance += credit
         self.positions[token_id] = 0
         print(f"💰 PAPER SELL: All units at ${price}. Bal: ${round(self.balance, 2)}")
+
+    def total_equity(self, mark_prices=None):
+        mark_prices = mark_prices or {}
+        open_value = 0.0
+        for token_id, shares in self.positions.items():
+            if shares <= 0:
+                continue
+            mark = mark_prices.get(token_id)
+            if mark is None:
+                continue
+            open_value += shares * mark
+        return self.balance + open_value
+
+    def print_pnl(self, mark_prices=None):
+        equity = self.total_equity(mark_prices)
+        pnl = equity - self.initial_balance
+        print("--- Session Summary ---")
+        print(f"Starting Balance: ${round(self.initial_balance, 2)}")
+        print(f"Cash Balance: ${round(self.balance, 2)}")
+        print(f"Total Equity: ${round(equity, 2)}")
+        print(f"PnL: ${round(pnl, 2)}")
 
 def get_tradable_market():
     """Finds an active market with CLOB token ids."""
@@ -88,8 +110,9 @@ def run_bot():
     print("Set POLYMARKET_MARKET to part of a slug/question to target a specific market.")
     
     prices = []
-    while True:
-        try:
+    last_price = None
+    try:
+        while True:
             mid = client.get_midpoint(token_id)
             mid_value = None
             if isinstance(mid, dict):
@@ -104,6 +127,8 @@ def run_bot():
             if current_price <= 0:
                 raise ValueError(f"Invalid midpoint price: {current_price}")
 
+            last_price = current_price
+
             prices.append(current_price)
             if len(prices) > 20: prices.pop(0)
 
@@ -116,10 +141,14 @@ def run_bot():
             elif current_price > (avg * 1.01) and portfolio.positions.get(token_id, 0) > 0:
                 portfolio.paper_sell(token_id, current_price)
 
-        except Exception as e:
-            print(f"Loop error: {e}")
-        
-        time.sleep(5)
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print("\nCtrl+C detected. Exiting bot...")
+    except Exception as e:
+        print(f"Loop error: {e}")
+    finally:
+        marks = {token_id: last_price} if last_price is not None else {}
+        portfolio.print_pnl(marks)
 
 if __name__ == "__main__":
     run_bot()
